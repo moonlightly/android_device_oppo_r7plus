@@ -26,12 +26,12 @@ $(call inherit-product, vendor/cm/config/common_full_phone.mk)
 PRODUCT_NAME := cm_r7plus
 PRODUCT_DEVICE := r7plus
 PRODUCT_BRAND := OPPO
-PRODUCT_MODEL := R7plusf
+PRODUCT_MODEL := R7Plusm
 PRODUCT_MANUFACTURER := OPPO
 
 PRODUCT_GMS_CLIENTID_BASE := android-oppo
 
 PRODUCT_BUILD_PROP_OVERRIDES += \
-    BUILD_FINGERPRINT=OPPO/R7plusf/R7Plusm:5.1.1/LMY47V/1437558400:user/release-keys \
-    PRIVATE_BUILD_DESC="msm8916_64-user 5.1.1 LMY47V eng..20150807.023105 dev-keys" \
-    TARGET_DEVICE="R7plusf"
+    BUILD_FINGERPRINT=OPPO/R7Plusm/R7Plusm:5.1.1/LMY47V/1390465867:user/release-keys \
+    PRIVATE_BUILD_DESC="msm8916_64-user 5.1.1 LMY47V eng.root.20150822.132305 dev-keys" \
+    TARGET_DEVICE="R7Plusm"
