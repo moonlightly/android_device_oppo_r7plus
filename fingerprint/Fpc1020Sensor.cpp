@@ -156,6 +156,12 @@ int Fpc1020Sensor::getEnrolledFingerprints(android::Vector<EnrolledFingerprint>&
 int Fpc1020Sensor::removeId(EnrolledFingerprint& fp)
 {
     ALOGV("removeId(%d)", fp.fid);
+
+    if (fp.fid == 0) {
+        // Fingerprint ID 0 means 'clear all fingerprints'
+        return clearEnrolledFingerprints();
+    }
+
     ssize_t index = mFpMetadata.indexOfKey(fp.fid);
     if (index >= 0) {
         fp.gid = mFpMetadata.valueAt(index).gid;
@@ -289,21 +295,23 @@ int Fpc1020Sensor::scanForTouchDown()
     return ret;
 }
 
-void Fpc1020Sensor::loadPersistedMetaData()
+bool Fpc1020Sensor::loadPersistedMetaData()
 {
     std::ifstream stream(MetadataFileName, std::ios::in | std::ios::binary);
     size_t i = 0, count = 0;
 
-    if (!stream.fail()) {
-        uint32_t version = 0;
-        stream.read((char *) &version, sizeof(version));
-        if (version != MetadataFileVersion) {
-            ALOGE("Unexpected metadata version %d", version);
-            return;
-        }
-        stream.read((char *) &mAuthenticatorId, sizeof(mAuthenticatorId));
-        stream.read((char *) &count, sizeof(count));
+    if (stream.fail()) {
+        return false;
     }
+
+    uint32_t version = 0;
+    stream.read((char *) &version, sizeof(version));
+    if (version != MetadataFileVersion) {
+        ALOGE("Unexpected metadata version %d", version);
+        return false;
+    }
+    stream.read((char *) &mAuthenticatorId, sizeof(mAuthenticatorId));
+    stream.read((char *) &count, sizeof(count));
 
     ALOGV("Loading %d persisted metadata records", count);
     for (size_t i = 0; i < count && !stream.fail(); i++) {
@@ -319,7 +327,9 @@ void Fpc1020Sensor::loadPersistedMetaData()
 
     if (stream.fail()) {
         ALOGE("Failed to load persisted fingerprint metadata");
+        return false;
     }
+    return true;
 }
 
 void Fpc1020Sensor::persistMetaData()
@@ -341,6 +351,54 @@ void Fpc1020Sensor::persistMetaData()
     if (stream.fail()) {
         ALOGE("Failed to persist fingerprint metadata");
     }
+}
+
+int Fpc1020Sensor::clearEnrolledFingerprints()
+{
+    ALOGD("clearEnrolledFingerprints()");
+    android::Mutex::Autolock l(mTzLock);
+    android::Vector<uint32_t> ids;
+    int ret = activate(false);
+    if (ret != 0) {
+        return ret;
+    }
+
+    ret = sendCommand(CLIENT_CMD_GET_IDS_LIST);
+    if (ret != 0) {
+        ALOGE("Enumeration of previously enrolled fingerprints failed");
+        return ret;
+    }
+
+    fingerprint_get_ids_list_rsp_t *resp =
+            (fingerprint_get_ids_list_rsp_t *) mQseecom.getReceiveBuffer();
+
+    if (resp->result == 0) {
+        for (uint32_t i = 0; i < resp->count; i++) {
+            ids.push_back(resp->ids[i]);
+        }
+    }
+
+    for (auto& id : ids) {
+        fingerprint_delete_cmd_t *req = (fingerprint_delete_cmd_t *) mQseecom.getSendBuffer();
+        req->id = id;
+
+        ret = sendCommand(CLIENT_CMD_REMOVE_ID);
+        if (ret) {
+            ALOGE("Removing fingerprint ID %d failed (%d)", id, ret);
+        }
+    }
+
+    ALOGD("Cleared %d previously enrolled fingerprints", ids.size());
+
+    if (isIdle()) {
+        deactivate();
+    }
+
+    mFpMetadata.clear();
+    mAuthenticatorId = 0;
+    persistMetaData();
+
+    return 0;
 }
 
 int Fpc1020Sensor::FingerprintThread::waitForTouchDown()
@@ -530,6 +588,9 @@ int Fpc1020Sensor::AuthenticationThread::doSingleAuthentication()
         FingerprintMetadata meta = mSensor->mFpMetadata.valueAt(index);
         EnrolledFingerprint fp(id, meta.gid);
         mSensor->mAuthenticateCb(&fp, meta.userId, mSensor->mCbData);
+
+        // we're seemingly supposed to go to idle state after a successful authentication
+        requestExit();
     }
 
 out:
